@@ -1,5 +1,7 @@
 # auth
 
+[![Test](https://github.com/benitogf/auth/actions/workflows/tests.yml/badge.svg)](https://github.com/benitogf/auth/actions/workflows/tests.yml)
+
 library to add jwt authentication to a katamari server
 
 # creating rules and audits
