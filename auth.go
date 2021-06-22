@@ -73,7 +73,6 @@ type BearerGetter struct {
 var (
 	userRegexp  = regexp.MustCompile("^[a-zA-Z0-9_]{2,15}$")
 	emailRegexp = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
-	phoneRegexp = regexp.MustCompile("^[0-9_-]{6,15}$")
 	roles       = map[string]string{"root": "root"}
 )
 
@@ -128,11 +127,8 @@ func New(tokenStore *JwtStore, store katamari.Database) *TokenAuth {
 // Verify : wrap a HandlerFunc to be authenticated
 func (t *TokenAuth) Verify(req *http.Request) bool {
 	_, err := t.Authenticate(req)
-	if err != nil {
-		return false
-	}
-	// context.Set(req, "token", token)
-	return true
+
+	return err == nil
 }
 
 // Authenticate :
@@ -290,7 +286,6 @@ func (t *TokenAuth) Authorize(pivotIP string) func(w http.ResponseWriter, r *htt
 				fmt.Fprint(w, err.Error())
 				return
 			}
-			break
 		case "PUT":
 			if credentials.Token != "" {
 				oldToken, err := t.tokenStore.CheckToken(credentials.Token)
@@ -300,15 +295,15 @@ func (t *TokenAuth) Authorize(pivotIP string) func(w http.ResponseWriter, r *htt
 					return
 				}
 
-				if oldToken.Claims("iss").(string) != credentials.Account {
+				if err.Error() != "token expired" {
 					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprint(w, errors.New("token doesn't match the account"))
+					fmt.Fprint(w, err)
 					return
 				}
 
-				if err.Error() != "Token expired" {
-					w.WriteHeader(http.StatusNotModified)
-					fmt.Fprint(w, err)
+				if oldToken.Claims("iss").(string) != credentials.Account {
+					w.WriteHeader(http.StatusBadRequest)
+					fmt.Fprint(w, errors.New("token doesn't match the account"))
 					return
 				}
 			} else {
@@ -316,7 +311,6 @@ func (t *TokenAuth) Authorize(pivotIP string) func(w http.ResponseWriter, r *htt
 				fmt.Fprint(w, errors.New("empty token"))
 				return
 			}
-			break
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprintf(w, "Method not suported")
@@ -400,7 +394,7 @@ func (t *TokenAuth) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	dataBytes := new(bytes.Buffer)
 	json.NewEncoder(dataBytes).Encode(user)
-	_, err = t.store.Set("users/"+user.Account, string(dataBytes.Bytes()))
+	_, err = t.store.Set("users/"+user.Account, dataBytes.String())
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -451,7 +445,7 @@ func (t *TokenAuth) NewPassword(w http.ResponseWriter, r *http.Request) {
 		err := dec.Decode(&userData)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, errors.New("Invalid user data"))
+			fmt.Fprint(w, errors.New("invalid user data"))
 			return
 		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(userData.Password), bcrypt.MinCost)
@@ -464,7 +458,7 @@ func (t *TokenAuth) NewPassword(w http.ResponseWriter, r *http.Request) {
 
 		dataBytes := new(bytes.Buffer)
 		json.NewEncoder(dataBytes).Encode(user)
-		_, err = t.store.Set("users/"+user.Account, string(dataBytes.Bytes()))
+		_, err = t.store.Set("users/"+user.Account, dataBytes.String())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, err)
@@ -475,8 +469,6 @@ func (t *TokenAuth) NewPassword(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.Encode(&user)
-		break
-
 	default:
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "Method not suported")
@@ -625,7 +617,6 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.Encode(&user)
-		break
 	case "DELETE":
 		err := t.store.Del("users/" + user.Account)
 		if err != nil {
@@ -635,14 +626,13 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 		fmt.Fprintf(w, "deleted "+account)
-		break
 	case "POST":
 		dec := json.NewDecoder(r.Body)
 		var userData User
 		err := dec.Decode(&userData)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, errors.New("Invalid user data"))
+			fmt.Fprint(w, errors.New("invalid user data"))
 			return
 		}
 		if userData.Email != "" {
@@ -659,7 +649,7 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 		}
 		dataBytes := new(bytes.Buffer)
 		json.NewEncoder(dataBytes).Encode(user)
-		_, err = t.store.Set("users/"+user.Account, string(dataBytes.Bytes()))
+		_, err = t.store.Set("users/"+user.Account, dataBytes.String())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, err)
@@ -670,7 +660,6 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.Encode(&user)
-		break
 	default:
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "Method not suported")
