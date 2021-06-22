@@ -14,6 +14,7 @@ import (
 
 	"github.com/benitogf/katamari"
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterAndAuthorize(t *testing.T) {
@@ -25,7 +26,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	}
 	go katamari.WatchStorageNoop(authStore)
 	auth := New(
-		NewJwtStore("a-secret-key", time.Second*1),
+		NewJwtStore("a-secret-key-0-asdasdada-asdasdasd-asdasdsaweenvurh@!@#12", time.Second*1),
 		authStore,
 	)
 	server := &katamari.Server{}
@@ -38,16 +39,11 @@ func TestRegisterAndAuthorize(t *testing.T) {
 
 	// unauthorized
 	req, err := http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Errorf("Request creation failed %s", err.Error())
-	}
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response := w.Result()
-
-	if response.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusUnauthorized, response.StatusCode)
-	}
+	require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 
 	// register
 	payload := []byte(`{
@@ -58,338 +54,215 @@ func TestRegisterAndAuthorize(t *testing.T) {
 				"phone": "123123123"
     }`)
 	req, err = http.NewRequest("POST", "/register", bytes.NewBuffer(payload))
-	if err != nil {
-		t.Errorf("Request creation failed %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	dec := json.NewDecoder(response.Body)
 
 	err = dec.Decode(&c)
-	if err != nil {
-		t.Error("error decoding authorize response")
-	}
-	if c.Token == "" {
-		t.Errorf("Expected a token in the credentials response %s", c)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, c.Token)
 
 	regToken := c.Token
 
 	// authorize
 	payload = []byte(`{"account":"root","password":"000"}`)
 	req, err = http.NewRequest("POST", "/authorize", bytes.NewBuffer(payload))
-	if err != nil {
-		t.Errorf("Request creation failed %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	dec = json.NewDecoder(response.Body)
 	err = dec.Decode(&c)
-	if err != nil {
-		t.Error("error decoding authorize response")
-	}
-	if c.Token == "" {
-		t.Errorf("Expected a token in the credentials response %s", c)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, c.Token)
 
 	token := c.Token
-	if token == regToken {
-		t.Errorf("Expected register and authorize to provide different tokens")
-	}
+	require.NotEqual(t, token, regToken)
 
 	// wait expiration of the token
 	time.Sleep(time.Second * 2)
 
 	// taken
 	req, err = http.NewRequest("GET", "/available?account=root", nil)
-	if err != nil {
-		t.Errorf("Got error on available endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusConflict {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusConflict, response.StatusCode)
-	}
+	require.Equal(t, http.StatusConflict, response.StatusCode)
 
 	//available
 	req, err = http.NewRequest("GET", "/available?account=notadmin", nil)
-	if err != nil {
-		t.Errorf("Got error on available endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	// expired
 	req, err = http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusUnauthorized, response.StatusCode)
-	}
+	require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 
 	// fake
-	fakeToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1NDk1MzIxNjM5NDIxMDcxMDAsImlzcyI6ImFkbWluIn0.ZOPToC1AJs1hJRLoyFNZetsxvUNadYNtlIqWrm0FAKE"
+	fakeToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MjQzMzg1MDk5MDM1OTI5MDAsImlzcyI6InJvb3QiLCJyb2xlIjoicm9vdCJ9.C06Q66Qp9n5rXC7lSdOfmd5iF5BDWw5bTqSqHph7GGQFAKE"
 	req, err = http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+fakeToken)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusUnauthorized, response.StatusCode)
-	}
+	require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 
 	// refresh user doesn't match token
 	payload = []byte(`{"account":"notadmin","token":"` + token + `"}`)
 	req, err = http.NewRequest("PUT", "/authorize", bytes.NewBuffer(payload))
-	if err != nil {
-		t.Errorf("Request creation failed %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
+	require.Equal(t, http.StatusBadRequest, response.StatusCode)
 
-	if response.StatusCode != http.StatusBadRequest {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusBadRequest, response.StatusCode)
-	}
+	// refresh fake token, with fake user
+	payload = []byte(`{"account":"root","token":"` + fakeToken + `"}`)
+	req, err = http.NewRequest("PUT", "/authorize", bytes.NewBuffer(payload))
+	require.NoError(t, err)
+	w = httptest.NewRecorder()
+	server.Router.ServeHTTP(w, req)
+	response = w.Result()
+	require.Equal(t, http.StatusBadRequest, response.StatusCode)
 
 	// refresh
 	payload = []byte(`{"account":"root","token":"` + token + `"}`)
 	req, err = http.NewRequest("PUT", "/authorize", bytes.NewBuffer(payload))
-	if err != nil {
-		t.Errorf("Request creation failed %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	dec = json.NewDecoder(response.Body)
 	err = dec.Decode(&c)
-	if err != nil {
-		t.Error("error decoding authorize refresh response")
-	}
-	if c.Token == "" {
-		t.Errorf("Expected a token in the refresh credentials response %s", c)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, c.Token)
 
 	token = c.Token
 
 	// authorized
 	req, err = http.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if string(body) != "{\"keys\":[]}" {
-		t.Errorf("Expected an empty array. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, "{\"keys\":[]}", strings.TrimRight(string(body), "\n"))
 
 	// profile
 	req, err = http.NewRequest("GET", "/profile", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	body, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if strings.TrimRight(string(body), "\n") != `{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}` {
-		t.Errorf("Expected the user profile. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
 	// users
 	req, err = http.NewRequest("GET", "/users", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusForbidden {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusForbidden, response.StatusCode)
-	}
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 
 	req, err = http.NewRequest("GET", "/users", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 	body, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if strings.TrimRight(string(body), "\n") != `[{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}]` {
-		t.Errorf("Expected the user profile. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, `[{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}]`, strings.TrimRight(string(body), "\n"))
 
 	// get user
 	req, err = http.NewRequest("GET", "/user/root", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusForbidden {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusForbidden, response.StatusCode)
-	}
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 
 	req, err = http.NewRequest("GET", "/user/root", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 	body, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if strings.TrimRight(string(body), "\n") != `{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}` {
-		t.Errorf("Expected the user profile. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
 	// update user
 	payload = []byte(`{"phone":"321321321"}`)
 	req, err = http.NewRequest("POST", "/user/root", bytes.NewBuffer(payload))
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 	body, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if strings.TrimRight(string(body), "\n") != `{"name":"root","email":"root@root.test","phone":"321321321","account":"root","role":"root"}` {
-		t.Errorf("Expected the user profile. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"321321321","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
 	// get updated user
 	req, err = http.NewRequest("GET", "/user/root", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 	body, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if strings.TrimRight(string(body), "\n") != `{"name":"root","email":"root@root.test","phone":"321321321","account":"root","role":"root"}` {
-		t.Errorf("Expected the user profile. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"321321321","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
 	// delete user
 	req, err = http.NewRequest("DELETE", "/user/root", nil)
-	if err != nil {
-		t.Errorf("Got error on restricted endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusNoContent {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
-	}
+	require.Equal(t, http.StatusNoContent, response.StatusCode)
 	body, err = ioutil.ReadAll(response.Body)
-	if err != nil {
-		t.Errorf("Got error reading response.  %s", err.Error())
-	}
-	if strings.TrimRight(string(body), "\n") != `deleted root` {
-		t.Errorf("Expected deleted message. Got %s", string(body))
-	}
+	require.NoError(t, err)
+	require.Equal(t, `deleted root`, strings.TrimRight(string(body), "\n"))
 
 	// available deleted user
 	req, err = http.NewRequest("GET", "/available?account=root", nil)
-	if err != nil {
-		t.Errorf("Got error on available endpoint %s", err.Error())
-	}
+	require.NoError(t, err)
 	w = httptest.NewRecorder()
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
-
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
 }
