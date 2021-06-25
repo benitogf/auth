@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/benitogf/jwt"
+	"github.com/golang-jwt/jwt"
 )
 
 // JwtStore :
