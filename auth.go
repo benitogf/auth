@@ -2,12 +2,13 @@ package auth
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/goccy/go-json"
 
 	"github.com/benitogf/katamari"
 	"github.com/benitogf/katamari/objects"
@@ -102,7 +103,7 @@ func NewHeaderBearerTokenGetter(header string) *BearerGetter {
 
 // New :
 //
-// Returns a TokenAuth object implemting Handler interface
+// # Returns a TokenAuth object implemting Handler interface
 //
 // if a handler is given it proxies the request to the handler
 //
@@ -113,7 +114,6 @@ func NewHeaderBearerTokenGetter(header string) *BearerGetter {
 // unauthorized handler is used.
 //
 // store is the TokenStore that stores and verify the tokens
-//
 func New(tokenStore *JwtStore, store katamari.Database) *TokenAuth {
 	t := &TokenAuth{
 		tokenStore: tokenStore,

@@ -2,8 +2,7 @@ package auth
 
 import (
 	"bytes"
-	"encoding/json"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	"github.com/benitogf/katamari"
 	"github.com/gorilla/mux"
@@ -166,7 +167,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, "{\"keys\":[]}", strings.TrimRight(string(body), "\n"))
 
@@ -179,7 +180,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -198,7 +199,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `[{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}]`, strings.TrimRight(string(body), "\n"))
 
@@ -217,7 +218,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"123123123","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -230,7 +231,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"321321321","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -242,7 +243,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","email":"root@root.test","phone":"321321321","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -254,7 +255,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `deleted root`, strings.TrimRight(string(body), "\n"))
 
