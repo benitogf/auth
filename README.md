@@ -2,7 +2,7 @@
 
 [![Test](https://github.com/benitogf/auth/actions/workflows/tests.yml/badge.svg)](https://github.com/benitogf/auth/actions/workflows/tests.yml)
 
-library to add jwt authentication to a katamari server
+library to add jwt authentication to ooo server
 
 # creating rules and audits
 
@@ -18,27 +18,27 @@ package main
 import (
   "net/http"
   "github.com/gorilla/mux"
-  "github.com/benitogf/katamari"
+  "github.com/benitogf/ooo"
   "github.com/benitogf/auth"
-  "github.com/benitogf/level"
+  "github.com/benitogf/ko"
 )
 
 func main() {
   // auth storage (users)
-	authStore := &level.Storage{Path: "/data/auth"}
+	authStore := &ko.Storage{Path: "/data/auth"}
 	err := authStore.Start([]string{}, nil)
 	if err != nil {
 		log.Fatal(err)
   }
   // noop to capture the storage channel feed
-  go katamari.WatchStorageNoop(authStore)
+  go ooo.WatchStorageNoop(authStore)
   // set the JWT tokens expiry
 	auth := auth.New(
 		auth.NewJwtStore(*key, time.Minute*10),
 		authStore,
   )
 
-  app := katamari.Server{}
+  app := ooo.Server{}
   // set the server static mode (only defined filters and routes available)
   app.Static = true
   // perform audits on the request path/headers/referer
@@ -52,8 +52,8 @@ func main() {
     return false
   }
   app.Router = mux.NewRouter()
-  katamari.OpenFilter(app, "open") // available withour token
-  katamari.OpenFilter(app, "closed") // valid token required
+  ooo.OpenFilter(app, "open") // available withour token
+  ooo.OpenFilter(app, "closed") // valid token required
   auth.Router(app)
   app.Start("localhost:8800")
   app.WaitClose()
