@@ -10,6 +10,8 @@ require (
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3
 )
 
+replace github.com/benitogf/ooo => ../ooo
+
 require (
 	github.com/bclicn/color v0.0.0-20180711051946-108f2023dc84 // indirect
 	github.com/benitogf/coat v0.0.0-20200402073050-ff807656cbec // indirect

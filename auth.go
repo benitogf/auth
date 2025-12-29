@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/benitogf/ooo"
-	"github.com/benitogf/ooo/meta"
+	"github.com/benitogf/ooo/storage"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -36,7 +36,7 @@ type Credentials struct {
 // TokenAuth :
 type TokenAuth struct {
 	tokenStore          *JwtStore
-	store               ooo.Database
+	store               storage.Database
 	getter              TokenGetter
 	UnauthorizedHandler http.HandlerFunc
 }
@@ -120,7 +120,7 @@ func NewHeaderBearerTokenGetter(header string) *BearerGetter {
 // unauthorized handler is used.
 //
 // store is the TokenStore that stores and verify the tokens
-func New(tokenStore *JwtStore, store ooo.Database) *TokenAuth {
+func New(tokenStore *JwtStore, store storage.Database) *TokenAuth {
 	t := &TokenAuth{
 		tokenStore: tokenStore,
 		store:      store,
@@ -183,43 +183,24 @@ func (t *TokenAuth) Audit(r *http.Request) (string, string, error) {
 
 // Authorize method
 func (t *TokenAuth) getUser(account string) (User, error) {
-	var user User
-	raw, err := t.store.Get("users/" + account)
+	obj, err := ooo.Get[User](&ooo.Server{Storage: t.store}, "users/"+account)
 	if err != nil {
-		return user, err
+		return User{}, err
 	}
-	var obj meta.Object
-	err = json.Unmarshal(raw, &obj)
-	if err != nil {
-		return user, err
-	}
-	err = json.Unmarshal([]byte(obj.Data), &user)
-	if err != nil {
-		return user, err
-	}
-	return user, nil
+	return obj.Data, nil
 }
 
 func (t *TokenAuth) getUsers() ([]User, error) {
-	var users []User
-	raw, err := t.store.Get("users/*")
+	users, err := ooo.GetList[User](&ooo.Server{Storage: t.store}, "users/*")
 	if err != nil {
 		return nil, err
 	}
-	var objects []meta.Object
-	err = json.Unmarshal(raw, &objects)
-	if err != nil {
-		return nil, err
+	var result []User
+	for _, user := range users {
+		user.Data.Password = ""
+		result = append(result, user.Data)
 	}
-	for _, object := range objects {
-		var user User
-		err = json.Unmarshal([]byte(object.Data), &user)
-		if err == nil {
-			user.Password = ""
-			users = append(users, user)
-		}
-	}
-	return users, nil
+	return result, nil
 }
 
 func getCredentials(r *http.Request) (Credentials, error) {

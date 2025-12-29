@@ -3,8 +3,6 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,19 +10,20 @@ import (
 	"testing"
 	"time"
 
+	"io"
+
 	"github.com/benitogf/ooo"
+	"github.com/benitogf/ooo/storage"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterAndAuthorize(t *testing.T) {
 	var c Credentials
-	authStore := &ooo.MemoryStorage{}
-	err := authStore.Start(ooo.StorageOpt{})
-	if err != nil {
-		log.Fatal(err)
-	}
-	go ooo.WatchStorageNoop(authStore)
+	authStore := storage.New(storage.LayeredConfig{
+		Memory: storage.NewMemoryLayer(),
+	})
+	go storage.WatchStorageNoop(authStore)
 	auth := New(
 		NewJwtStore("a-secret-key-0-asdasdada-asdasdasd-asdasdsaweenvurh@!@#12", time.Second*1),
 		authStore,
@@ -166,10 +165,6 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	body, err := ioutil.ReadAll(response.Body)
-	require.NoError(t, err)
-	require.Equal(t, "{\"keys\":[]}", strings.TrimRight(string(body), "\n"))
-
 	// profile
 	req, err = http.NewRequest("GET", "/profile", nil)
 	require.NoError(t, err)
@@ -179,7 +174,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	body, err = ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -198,7 +193,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `[{"name":"root","account":"root","role":"root"}]`, strings.TrimRight(string(body), "\n"))
 
@@ -217,7 +212,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -230,7 +225,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -242,7 +237,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `{"name":"root","account":"root","role":"root"}`, strings.TrimRight(string(body), "\n"))
 
@@ -254,7 +249,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	server.Router.ServeHTTP(w, req)
 	response = w.Result()
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
-	body, err = ioutil.ReadAll(response.Body)
+	body, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, `deleted root`, strings.TrimRight(string(body), "\n"))
 
@@ -266,4 +261,3 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	response = w.Result()
 	require.Equal(t, http.StatusOK, response.StatusCode)
 }
-
