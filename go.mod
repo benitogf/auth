@@ -3,20 +3,18 @@ module github.com/benitogf/auth
 go 1.25
 
 require (
-	github.com/benitogf/ooo v0.0.0-20251124052607-b19fb995a95c
+	github.com/benitogf/ooo v0.0.0-20260109055348-efad8e781ed7
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/gorilla/mux v1.8.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3
 )
 
-replace github.com/benitogf/ooo => ../ooo
-
 require (
 	github.com/bclicn/color v0.0.0-20180711051946-108f2023dc84 // indirect
 	github.com/benitogf/coat v0.0.0-20200402073050-ff807656cbec // indirect
 	github.com/benitogf/jsondiff v0.0.0-20220926080659-c3db9b84b559 // indirect
-	github.com/benitogf/jsonpatch v0.0.0-20250219100646-458e71efe70d // indirect
+	github.com/benitogf/jsonpatch v0.0.0-20260109052650-eec54232a9a2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
