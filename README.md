@@ -2,60 +2,85 @@
 
 [![Test](https://github.com/benitogf/auth/actions/workflows/tests.yml/badge.svg)](https://github.com/benitogf/auth/actions/workflows/tests.yml)
 
-library to add jwt authentication to a katamari server
+JWT authentication library for the [ooo](https://github.com/benitogf/ooo) ecosystem.
 
-# creating rules and audits
+## Features
 
-    Define ad lib filters to send and receive criteria using key glob patterns, audit middleware
+- **JWT token authentication** with configurable expiry
+- **User management** with registration and login
+- **Audit middleware** for access control
+- **Compatible with ooo** server and filters
 
-Using the default open setting is usefull while prototyping, but maybe not ideal to deploy as a public service.
+## Installation
 
-jwt auth enabled with static routing server example:
+```bash
+go get github.com/benitogf/auth
+```
 
-```golang
+## Usage
+
+```go
 package main
 
 import (
-  "net/http"
-  "github.com/gorilla/mux"
-  "github.com/benitogf/katamari"
-  "github.com/benitogf/auth"
-  "github.com/benitogf/level"
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/gorilla/mux"
+    "github.com/benitogf/auth"
+    "github.com/benitogf/ko"
+    "github.com/benitogf/ooo"
 )
 
 func main() {
-  // auth storage (users)
-	authStore := &level.Storage{Path: "/data/auth"}
-	err := authStore.Start([]string{}, nil)
-	if err != nil {
-		log.Fatal(err)
-  }
-  // noop to capture the storage channel feed
-  go katamari.WatchStorageNoop(authStore)
-  // set the JWT tokens expiry
-	auth := auth.New(
-		auth.NewJwtStore(*key, time.Minute*10),
-		authStore,
-  )
+    // Auth storage (users)
+    authStore := &ko.Storage{Path: "/data/auth"}
+    err := authStore.Start([]string{}, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    go ooo.WatchStorageNoop(authStore)
 
-  app := katamari.Server{}
-  // set the server static mode (only defined filters and routes available)
-  app.Static = true
-  // perform audits on the request path/headers/referer
-  // if the function returns false the request will return
-  // status 401
-	app.Audit = func(r *http.Request, auth *auth.TokenAuth) bool {
-    if r.URL.Path == "/open" {
-      return true
+    // Create auth with JWT token expiry
+    key := "your-secret-key"
+    tokenAuth := auth.New(
+        auth.NewJwtStore(key, time.Minute*10),
+        authStore,
+    )
+
+    // Create server with static mode
+    app := ooo.Server{Static: true}
+
+    // Audit middleware for access control
+    app.Audit = func(r *http.Request) bool {
+        if r.URL.Path == "/open" {
+            return true
+        }
+        return tokenAuth.Verify(r) // Require valid token
     }
 
-    return false
-  }
-  app.Router = mux.NewRouter()
-  katamari.OpenFilter(app, "open") // available withour token
-  katamari.OpenFilter(app, "closed") // valid token required
-  auth.Router(app)
-  app.Start("localhost:8800")
-  app.WaitClose()
+    app.Router = mux.NewRouter()
+    app.OpenFilter("open")   // Available without token
+    app.OpenFilter("closed") // Requires valid token
+    tokenAuth.Router(&app)   // Add auth routes
+
+    app.Start("localhost:8800")
+    app.WaitClose()
 }
 ```
+
+## Auth Routes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/register` | Register new user |
+| POST | `/authorize` | Login and get token |
+| GET | `/verify` | Verify token validity |
+
+## Related Projects
+
+- [ooo](https://github.com/benitogf/ooo) - Main server library
+- [ko](https://github.com/benitogf/ko) - Persistent storage adapter
+- [ooo-client](https://github.com/benitogf/ooo-client) - JavaScript client
+- [mono](https://github.com/benitogf/mono) - Full-stack boilerplate

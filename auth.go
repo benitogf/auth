@@ -2,17 +2,17 @@ package auth
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
-	"github.com/goccy/go-json"
-
-	"github.com/benitogf/katamari"
-	"github.com/benitogf/katamari/objects"
-	"github.com/benitogf/pivot"
+	"github.com/benitogf/ooo"
+	"github.com/benitogf/ooo/storage"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -20,8 +20,6 @@ import (
 // User :
 type User struct {
 	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
 	Account  string `json:"account"`
 	Password string `json:"password,omitempty"`
 	Role     string `json:"role"`
@@ -38,10 +36,9 @@ type Credentials struct {
 // TokenAuth :
 type TokenAuth struct {
 	tokenStore          *JwtStore
-	store               katamari.Database
+	store               storage.Database
 	getter              TokenGetter
 	UnauthorizedHandler http.HandlerFunc
-	client              *http.Client
 }
 
 // TokenGetter :
@@ -71,11 +68,21 @@ type BearerGetter struct {
 	Header string
 }
 
+// Activity keeps the time of the last entry
+type Activity struct {
+	LastEntry int64 `json:"lastEntry"`
+}
+
 var (
-	userRegexp  = regexp.MustCompile("^[a-zA-Z0-9_]{2,15}$")
-	emailRegexp = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
-	roles       = map[string]string{"root": "root"}
+	userRegexp = regexp.MustCompile("^[a-zA-Z0-9_]{2,15}$")
+	roles      = map[string]string{"root": "root"}
 )
+
+// Time returns a string timestamp
+func Time() string {
+	now := time.Now().UTC().UnixNano()
+	return strconv.FormatInt(now, 10)
+}
 
 // DefaultUnauthorizedHandler :
 func DefaultUnauthorizedHandler(w http.ResponseWriter, req *http.Request) {
@@ -85,7 +92,6 @@ func DefaultUnauthorizedHandler(w http.ResponseWriter, req *http.Request) {
 
 // GetTokenFromRequest :
 func (b *BearerGetter) GetTokenFromRequest(req *http.Request) string {
-	// log.Println("header:", req.Header)
 	authStr := req.Header.Get(b.Header)
 	if !strings.HasPrefix(authStr, "Bearer ") {
 		return ""
@@ -114,7 +120,7 @@ func NewHeaderBearerTokenGetter(header string) *BearerGetter {
 // unauthorized handler is used.
 //
 // store is the TokenStore that stores and verify the tokens
-func New(tokenStore *JwtStore, store katamari.Database) *TokenAuth {
+func New(tokenStore *JwtStore, store storage.Database) *TokenAuth {
 	t := &TokenAuth{
 		tokenStore: tokenStore,
 		store:      store,
@@ -127,7 +133,6 @@ func New(tokenStore *JwtStore, store katamari.Database) *TokenAuth {
 // Verify : wrap a HandlerFunc to be authenticated
 func (t *TokenAuth) Verify(req *http.Request) bool {
 	_, err := t.Authenticate(req)
-
 	return err == nil
 }
 
@@ -142,6 +147,22 @@ func (t *TokenAuth) Authenticate(r *http.Request) (Token, error) {
 		return nil, err
 	}
 	return token, nil
+}
+
+func (t *TokenAuth) AuditToken(strToken string) (string, string, error) {
+	if len(strToken) < 7 {
+		return "", "", errors.New("invalid token")
+	}
+
+	token, err := t.tokenStore.CheckToken(strToken[7:])
+	if err != nil {
+		return "", "", err
+	}
+
+	role := token.Claims("role").(string)
+	account := token.Claims("iss").(string)
+
+	return role, account, nil
 }
 
 // Audit : get websocket token, return token claims
@@ -162,43 +183,24 @@ func (t *TokenAuth) Audit(r *http.Request) (string, string, error) {
 
 // Authorize method
 func (t *TokenAuth) getUser(account string) (User, error) {
-	var user User
-	raw, err := t.store.Get("users/" + account)
+	obj, err := ooo.Get[User](&ooo.Server{Storage: t.store}, "users/"+account)
 	if err != nil {
-		return user, err
+		return User{}, err
 	}
-	var obj objects.Object
-	err = json.Unmarshal(raw, &obj)
-	if err != nil {
-		return user, err
-	}
-	err = json.Unmarshal([]byte(obj.Data), &user)
-	if err != nil {
-		return user, err
-	}
-	return user, nil
+	return obj.Data, nil
 }
 
 func (t *TokenAuth) getUsers() ([]User, error) {
-	var users []User
-	raw, err := t.store.Get("users/*")
+	users, err := ooo.GetList[User](&ooo.Server{Storage: t.store}, "users/*")
 	if err != nil {
 		return nil, err
 	}
-	var objects []objects.Object
-	err = json.Unmarshal(raw, &objects)
-	if err != nil {
-		return nil, err
+	var result []User
+	for _, user := range users {
+		user.Data.Password = ""
+		result = append(result, user.Data)
 	}
-	for _, object := range objects {
-		var user User
-		err = json.Unmarshal([]byte(object.Data), &user)
-		if err == nil {
-			user.Password = ""
-			users = append(users, user)
-		}
-	}
-	return users, nil
+	return result, nil
 }
 
 func getCredentials(r *http.Request) (Credentials, error) {
@@ -227,11 +229,8 @@ func (t *TokenAuth) checkCredentials(credentials Credentials) (User, error) {
 }
 
 // Profile returns to the client the correspondent user profile for the token provided
-func (t *TokenAuth) Profile(pivotIP string) func(w http.ResponseWriter, r *http.Request) {
+func (t *TokenAuth) Profile() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if pivotIP != "" {
-			pivot.Synchronize(t.client, t.store, pivotIP, []string{"users/*"})
-		}
 		token, err := t.Authenticate(r)
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -260,12 +259,9 @@ func (t *TokenAuth) Profile(pivotIP string) func(w http.ResponseWriter, r *http.
 }
 
 // Authorize will claim a token on POST and refresh the claim on PUT
-func (t *TokenAuth) Authorize(pivotIP string) func(w http.ResponseWriter, r *http.Request) {
+func (t *TokenAuth) Authorize() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		if pivotIP != "" {
-			pivot.Synchronize(t.client, t.store, pivotIP, []string{"users/*"})
-		}
 		credentials, err := getCredentials(r)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -295,7 +291,7 @@ func (t *TokenAuth) Authorize(pivotIP string) func(w http.ResponseWriter, r *htt
 					return
 				}
 
-				if err.Error() != "token expired" {
+				if err.Error() != "Token expired" {
 					w.WriteHeader(http.StatusBadRequest)
 					fmt.Fprint(w, err)
 					return
@@ -328,7 +324,7 @@ func (t *TokenAuth) Authorize(pivotIP string) func(w http.ResponseWriter, r *htt
 	}
 }
 
-// Register will create a new user
+// Register will create a new user with the default user role (open route)
 func (t *TokenAuth) Register(w http.ResponseWriter, r *http.Request) {
 	var user User
 	decoder := json.NewDecoder(r.Body)
@@ -341,7 +337,7 @@ func (t *TokenAuth) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if user.Account == "" || user.Name == "" || user.Password == "" || user.Email == "" || user.Phone == "" {
+	if user.Account == "" || user.Name == "" || user.Password == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "%s", errors.New("new user data incomplete"))
 		return
@@ -356,18 +352,6 @@ func (t *TokenAuth) Register(w http.ResponseWriter, r *http.Request) {
 	if len(user.Password) < 3 || len(user.Password) > 88 {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "%s", errors.New("password character count must be between 2 and 88"))
-		return
-	}
-
-	if !userRegexp.MatchString(user.Phone) {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "%s", errors.New("phone cannot contain special characters othen than '-' and character count must be between 6 and 15"))
-		return
-	}
-
-	if !emailRegexp.MatchString(user.Email) {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "%s", errors.New("invalid email address"))
 		return
 	}
 
@@ -394,7 +378,7 @@ func (t *TokenAuth) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	dataBytes := new(bytes.Buffer)
 	json.NewEncoder(dataBytes).Encode(user)
-	_, err = t.store.Set("users/"+user.Account, dataBytes.String())
+	_, err = t.store.Set("users/"+user.Account, json.RawMessage(dataBytes.String()))
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -415,86 +399,6 @@ func (t *TokenAuth) Register(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(&credentials)
 }
 
-// NewPassword is for updating account password
-func (t *TokenAuth) NewPassword(w http.ResponseWriter, r *http.Request) {
-	token, err := t.Authenticate(r)
-	authorized := (err == nil)
-	role := "user"
-	if authorized {
-		role = token.Claims("role").(string)
-	}
-
-	// root authorization
-	if role != "root" {
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprintf(w, "Method not suported for your role")
-		return
-	}
-	account := mux.Vars(r)["account"]
-
-	user, err := t.getUser(account)
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, err.Error())
-		return
-	}
-	switch r.Method {
-	case "PUT":
-		dec := json.NewDecoder(r.Body)
-		var userData User
-		err := dec.Decode(&userData)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprint(w, errors.New("invalid user data"))
-			return
-		}
-		hash, err := bcrypt.GenerateFromPassword([]byte(userData.Password), bcrypt.MinCost)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, err.Error())
-			return
-		}
-		user.Password = string(hash)
-
-		dataBytes := new(bytes.Buffer)
-		json.NewEncoder(dataBytes).Encode(user)
-		_, err = t.store.Set("users/"+user.Account, dataBytes.String())
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, err)
-			return
-		}
-		user.Password = ""
-		w.WriteHeader(http.StatusOK)
-		w.Header().Set("Content-Type", "application/json")
-		enc := json.NewEncoder(w)
-		enc.Encode(&user)
-	default:
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Method not suported")
-		return
-	}
-}
-
-// Available will check if an account is taken
-func (t *TokenAuth) Available(pivotIP string) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if pivotIP != "" {
-			pivot.Synchronize(t.client, t.store, pivotIP, []string{"users/*"})
-		}
-		account := r.FormValue("account")
-		_, err := t.getUser(account)
-
-		if err == nil {
-			w.WriteHeader(http.StatusConflict)
-			fmt.Fprintf(w, "account taken")
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "account available")
-	}
-}
-
 // Create will create a new user (root only access)
 func (t *TokenAuth) Create(w http.ResponseWriter, r *http.Request) {
 	token, err := t.Authenticate(r)
@@ -511,7 +415,7 @@ func (t *TokenAuth) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// root authorization
-	if role != "root" {
+	if role != "root" && role != "admin" {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, "Method not suported for your role")
 		return
@@ -552,10 +456,53 @@ func (t *TokenAuth) Create(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s", errors.New("account name taken"))
 		return
 	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.MinCost)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, err.Error())
+		return
+	}
+
+	user.Password = string(hash)
+	dataBytes := new(bytes.Buffer)
+	json.NewEncoder(dataBytes).Encode(user)
+	_, err = t.store.Set("users/"+user.Account, json.RawMessage(dataBytes.String()))
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, err.Error())
+		return
+	}
+
+	credentials := Credentials{
+		Account: user.Account,
+		Role:    user.Role,
+	}
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	enc.Encode(&credentials)
+}
+
+// Available will check if an account is taken
+func (t *TokenAuth) Available() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		account := r.FormValue("account")
+		_, err := t.getUser(account)
+
+		w.Header().Set("Content-Type", "application/json")
+		if err == nil {
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprintf(w, "account taken")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "account available")
+	}
 }
 
 // Users will send the user list to a root user
-func (t *TokenAuth) Users(pivotIP string) func(w http.ResponseWriter, r *http.Request) {
+func (t *TokenAuth) Users() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, err := t.Authenticate(r)
 		authorized := (err == nil)
@@ -565,14 +512,10 @@ func (t *TokenAuth) Users(pivotIP string) func(w http.ResponseWriter, r *http.Re
 		}
 
 		// root authorization
-		if !authorized || role != "root" {
+		if !authorized || (role != "root" && role != "admin") {
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprintf(w, "Method not suported for your role")
 			return
-		}
-
-		if pivotIP != "" {
-			pivot.Synchronize(t.client, t.store, pivotIP, []string{"users/*"})
 		}
 
 		users, err := t.getUsers()
@@ -593,17 +536,19 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 	token, err := t.Authenticate(r)
 	authorized := (err == nil)
 	role := "user"
+	issuer := ""
 	if authorized {
 		role = token.Claims("role").(string)
+		issuer = token.Claims("iss").(string)
 	}
 
-	// root authorization
-	if !authorized || role != "root" {
+	account := mux.Vars(r)["account"]
+	// root, admin or your own user
+	if !authorized || (role != "root" && role != "admin" && issuer != account) {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, "Method not suported for your role")
 		return
 	}
-	account := mux.Vars(r)["account"]
 
 	user, err := t.getUser(account)
 	if err != nil {
@@ -624,8 +569,9 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "%s", err)
 			return
 		}
+		// t.store.Set("delete/users", Time())
 		w.WriteHeader(http.StatusNoContent)
-		fmt.Fprintf(w, "deleted "+account)
+		fmt.Fprintf(w, "%s", "deleted "+account)
 	case "POST":
 		dec := json.NewDecoder(r.Body)
 		var userData User
@@ -635,21 +581,15 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, errors.New("invalid user data"))
 			return
 		}
-		if userData.Email != "" {
-			user.Email = userData.Email
-		}
 		if userData.Name != "" {
 			user.Name = userData.Name
-		}
-		if userData.Phone != "" {
-			user.Phone = userData.Phone
 		}
 		if userData.Role != "" {
 			user.Role = userData.Role
 		}
 		dataBytes := new(bytes.Buffer)
 		json.NewEncoder(dataBytes).Encode(user)
-		_, err = t.store.Set("users/"+user.Account, dataBytes.String())
+		_, err = t.store.Set("users/"+user.Account, json.RawMessage(dataBytes.String()))
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, err)
@@ -667,17 +607,77 @@ func (t *TokenAuth) User(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Router handle for auth enpoints
-func (t *TokenAuth) Router(server *katamari.Server) {
-	server.Router.HandleFunc("/authorize", t.Authorize(server.Pivot))
-	server.Router.HandleFunc("/profile", t.Profile(server.Pivot))
-	server.Router.HandleFunc("/users", t.Users(server.Pivot)).Methods("GET")
-	server.Router.HandleFunc("/user/{account:[a-zA-Z\\d]+}", t.User).Methods("GET", "POST", "DELETE")
-	server.Router.HandleFunc("/password/{account:[a-zA-Z\\d]+}", t.NewPassword).Methods("PUT")
-	server.Router.HandleFunc("/register", t.Register).Methods("POST")
-	server.Router.HandleFunc("/create", t.Create).Methods("POST")
-	server.Router.HandleFunc("/available", t.Available(server.Pivot)).Queries("account", "{[a-zA-Z\\d]}").Methods("GET")
+// NewPassword is for updating account password
+func (t *TokenAuth) NewPassword(w http.ResponseWriter, r *http.Request) {
+	token, err := t.Authenticate(r)
+	authorized := (err == nil)
+	role := "user"
+	issuer := ""
+	if authorized {
+		role = token.Claims("role").(string)
+		issuer = token.Claims("iss").(string)
+	}
 
-	t.client = server.Client
-	pivot.Router(server.Router, t.store, server.Client, server.Pivot, []string{"users/*"})
+	account := mux.Vars(r)["account"]
+	// root, admin or your own user
+	if !authorized || (role != "root" && role != "admin" && issuer != account) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprintf(w, "Method not suported for your role")
+		return
+	}
+
+	user, err := t.getUser(account)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, err.Error())
+		return
+	}
+	switch r.Method {
+	case "PUT":
+		dec := json.NewDecoder(r.Body)
+		var userData User
+		err := dec.Decode(&userData)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, errors.New("invalid user data"))
+			return
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(userData.Password), bcrypt.MinCost)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, err.Error())
+			return
+		}
+		user.Password = string(hash)
+
+		dataBytes := new(bytes.Buffer)
+		json.NewEncoder(dataBytes).Encode(user)
+		_, err = t.store.Set("users/"+user.Account, json.RawMessage(dataBytes.String()))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, err)
+			return
+		}
+		user.Password = ""
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.Encode(&user)
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Method not suported")
+		return
+	}
+}
+
+// Routes handle for auth enpoints
+func (t *TokenAuth) Routes(server *ooo.Server) {
+	server.Router.HandleFunc("/authorize", t.Authorize()).Methods(http.MethodPost, http.MethodPut)
+	server.Router.HandleFunc("/profile", t.Profile()).Methods(http.MethodGet)
+	server.Router.HandleFunc("/users", t.Users()).Methods(http.MethodGet)
+	server.Router.HandleFunc("/user/{account:[a-zA-Z\\d]+}", t.User).Methods(http.MethodPost, http.MethodGet, http.MethodDelete)
+	server.Router.HandleFunc("/password/{account:[a-zA-Z\\d]+}", t.NewPassword).Methods(http.MethodPut)
+	server.Router.HandleFunc("/register", t.Register).Methods(http.MethodPost)
+	server.Router.HandleFunc("/create", t.Create).Methods(http.MethodPost)
+	server.Router.HandleFunc("/available", t.Available()).Queries("account", "{[a-zA-Z\\d]}").Methods(http.MethodGet)
 }
