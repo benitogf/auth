@@ -23,6 +23,7 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	authStore := storage.New(storage.LayeredConfig{
 		Memory: storage.NewMemoryLayer(),
 	})
+	authStore.Start(storage.Options{})
 	go storage.WatchStorageNoop(authStore)
 	auth := New(
 		NewJwtStore("a-secret-key-0-asdasdada-asdasdasd-asdasdsaweenvurh@!@#12", time.Second*1),
