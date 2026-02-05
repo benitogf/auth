@@ -3,7 +3,7 @@ module github.com/benitogf/auth
 go 1.25
 
 require (
-	github.com/benitogf/ooo v0.0.0-20260109055348-efad8e781ed7
+	github.com/benitogf/ooo v0.0.0-20260202060447-566ed1c50fb9
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/gorilla/mux v1.8.1
 	github.com/stretchr/testify v1.11.1

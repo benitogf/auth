@@ -121,6 +121,9 @@ func NewHeaderBearerTokenGetter(header string) *BearerGetter {
 //
 // store is the TokenStore that stores and verify the tokens
 func New(tokenStore *JwtStore, store storage.Database) *TokenAuth {
+	if !store.Active() {
+		panic("auth: store is not active - did you forget to call store.Start()?")
+	}
 	t := &TokenAuth{
 		tokenStore: tokenStore,
 		store:      store,
@@ -672,6 +675,9 @@ func (t *TokenAuth) NewPassword(w http.ResponseWriter, r *http.Request) {
 
 // Routes handle for auth enpoints
 func (t *TokenAuth) Routes(server *ooo.Server) {
+	if !t.store.Active() {
+		panic("auth: store is not active - did you forget to call store.Start()?")
+	}
 	server.Router.HandleFunc("/authorize", t.Authorize()).Methods(http.MethodPost, http.MethodPut)
 	server.Router.HandleFunc("/profile", t.Profile()).Methods(http.MethodGet)
 	server.Router.HandleFunc("/users", t.Users()).Methods(http.MethodGet)
