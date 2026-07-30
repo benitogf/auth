@@ -31,8 +31,8 @@ func TestRegisterAndAuthorize(t *testing.T) {
 	)
 	server := &ooo.Server{}
 	server.Silence = true
-	server.Audit = auth.Verify
 	server.Router = mux.NewRouter()
+	server.Router.Use(auth.Middleware())
 	auth.Routes(server)
 	server.Start("localhost:9060")
 	defer server.Close(os.Interrupt)
