@@ -139,6 +139,47 @@ func (t *TokenAuth) Verify(req *http.Request) bool {
 	return err == nil
 }
 
+// isAuthRoute reports whether path is one of the endpoints registered by
+// Routes. Those handlers either are open (register, authorize, available) or
+// self-guard by inspecting the token themselves (users, user, profile,
+// password, create), so Middleware never gates them — mirroring the previous
+// behavior where ooo's Server.Audit hook did not cover these custom handlers.
+func isAuthRoute(path string) bool {
+	switch path {
+	case "/authorize", "/profile", "/users", "/register", "/create", "/available":
+		return true
+	}
+	return strings.HasPrefix(path, "/user/") || strings.HasPrefix(path, "/password/")
+}
+
+// Middleware returns a gorilla/mux middleware that gates requests with a valid
+// token. It is the replacement for ooo's removed Server.Audit hook: register it
+// before starting the server with
+//
+//	server.Router.Use(tokenAuth.Middleware())
+//
+// gorilla/mux fans the middleware out to every matched route (REST, WebSocket
+// upgrades, custom endpoints and the explorer UI), so any data route without a
+// valid token is answered by UnauthorizedHandler. The auth-managed routes
+// registered by Routes are never gated; pass extra open paths (exact match) to
+// exempt additional routes.
+func (t *TokenAuth) Middleware(open ...string) mux.MiddlewareFunc {
+	openSet := make(map[string]struct{}, len(open))
+	for _, path := range open {
+		openSet[path] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, isOpen := openSet[r.URL.Path]
+			if isOpen || isAuthRoute(r.URL.Path) || t.Verify(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			t.UnauthorizedHandler(w, r)
+		})
+	}
+}
+
 // Authenticate :
 func (t *TokenAuth) Authenticate(r *http.Request) (Token, error) {
 	strToken := t.getter.GetTokenFromRequest(r)
